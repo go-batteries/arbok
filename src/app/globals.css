@@ -26,6 +26,11 @@ body {
     rgb(var(--background-start-rgb));
 }
 
+.highlight {
+  border-image-source: linear-gradient(to right, red, purple);
+  border-image-slice: 1;
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;
