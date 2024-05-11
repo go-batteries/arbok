@@ -1,4 +1,7 @@
+'use client';
+
 import { FileUploader } from "@components/fileuploader";
+import { ListFiles } from "@components/listfiles";
 
 export default function Home() {
   return (
@@ -11,6 +14,7 @@ export default function Home() {
       </div>
 
       <FileUploader />
+      <ListFiles />
 
       <div className="mb-32 grid text-center lg:mb-0 lg:w-full lg:max-w-5xl lg:grid-cols-4 lg:text-left">
 
