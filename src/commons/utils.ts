@@ -1,10 +1,8 @@
 "use client";
 
 import { filetypeinfo } from 'magic-bytes.js/dist';
-
-import { Store } from '@/commons/store';
-
-import { getCookie } from 'cookies-next';
+import { Store, StoreKey } from '@/commons/store';
+import { StageFileEvent } from './events';
 
 const crypto = () => window.crypto;
 
@@ -44,7 +42,8 @@ function handleDrop(e: any) {
 	const dt = e.dataTransfer;
 	const files = dt.files;
 
-	Store.set('uploads', files);
+	Store.emit(StageFileEvent, files)
+	Store.set(StoreKey.uploads, files)
 }
 
 function handleDropWrapper(fileRef: HTMLElement) {
@@ -65,25 +64,43 @@ type Ffile = {
 	t: string,
 	size: number,
 	digest: string,
+	nextChunkID: number
 }
 
 const DOMAIN = () => "http://localhost:9191";
 
 
+type ResponseDetails = {
+	status: number,
+	success: boolean,
+	body?: any,
+}
+
 export async function fetchJSON(url: string, opts: any) {
 	let headers = {
 		...opts.headers,
 		'Content-Type': 'application/json',
-
 	};
 	opts.headers = headers;
+
+	let respDetails: ResponseDetails;
+
 	return await fetch(url, {
 		...opts,
-	}).then(resp => resp.json());
-}
+	}).then(resp => {
+		respDetails = {
+			status: resp.status,
+			success: resp.status < 400,
+		}
+		if (Number(resp.headers.get("content-length")) > 0) {
+			return resp.json()
+		}
 
-function checkAccessToken() {
-	console.log(document.cookie); // should have access token for authenticated users;
+		return resp.text()
+	}).then(result => {
+		respDetails.body = result
+		return respDetails;
+	});
 }
 
 const FileUtils = {
@@ -97,9 +114,8 @@ const FileUtils = {
 			.map((b) => b.toString(16).padStart(2, "0"))
 			.join("");
 
-		//TODO: check this bullshit
-		let _fileTypes = filetypeinfo(uint8ViewOfHash)
-		console.log("filetypes====", _fileTypes, withType);
+		// console.log(buff, new Uint8Array(buff))
+		let _fileTypes = filetypeinfo(new Uint8Array(buff))
 
 		let fileType = "blob"
 
@@ -107,6 +123,7 @@ const FileUtils = {
 			fileType = _fileTypes[0].mime || _fileTypes[0].typename
 		}
 
+		console.log(fileType, "fileType")
 		return {
 			digest: hashDigestHex,
 			fileType,
@@ -170,33 +187,38 @@ export class FileService {
 	async uploadMetadata(file: File) {
 		const fileInfo = await FileUtils.digestBlob(file, true);
 
-		let data = Store.get('files', [])
+		let data = Store.get(StoreKey.files, [])
+
+		debugger
+		// TODO: add fileType as filterCriteria
 		let prevFileRevisionFound = data.find((info: any) => info.fileName == file.name)
 
-		console.log(prevFileRevisionFound)
-
 		if (prevFileRevisionFound) {
-			// Check if the hash changed
 			if (prevFileRevisionFound.fileHash == fileInfo.digest)
-				return Promise.resolve(file)
+				return Promise.reject(new Error("no_change"))
 
+			const body = {
+				fileID: prevFileRevisionFound.fileID,
+				fileSize: file.size,
+				fileName: file.name,
+				chunks: this.calculateChunks(file.size),
+				digest: fileInfo.digest,
+
+			}
 			return fetchJSON(`${DOMAIN()}/my/files/${prevFileRevisionFound.fileID}`, {
 				method: 'PATCH',
 				headers: {
 					...buildAuthTokenHeader(),
 				},
-				body: JSON.stringify({
-					fileID: prevFileRevisionFound.fileID,
-					fileSize: file.size,
-					chunks: this.calculateChunks(file.size),
-					digest: fileInfo.digest,
+				body: JSON.stringify(body)
+			}).then(data => {
+				let result = data.body;
 
-				}).then(resp => resp.json()).then(data => {
-					console.log(data)
-					localStorage.setItem("stream_token", data.data?.streamToken)
-					//TODO: update the info in Store
-					return data
-				})
+				if (data.success) {
+					if (result?.streamToken)
+						localStorage.setItem("stream_token", result?.streamToken)
+				}
+				return { data: result, ...body }
 			})
 		}
 
@@ -208,7 +230,6 @@ export class FileService {
 			chunks: this.calculateChunks(file.size),
 		};
 
-
 		// checkAccessToken()
 
 		return fetchJSON(`${DOMAIN()}/my/files`, {
@@ -219,15 +240,16 @@ export class FileService {
 			body: JSON.stringify(body),
 		}).then(data => {
 			console.log(data);
-			if (data.success) {
-				alert("success file metadata")
+			let result = data.body;
 
-				// Here we are setting the stream token that is comming in respons
-				localStorage.setItem("stream_token", data.data?.streamToken)
-				return data.data
+			if (data.success) {
+				// Here we are setting the stream token
+				// that is comming in respons
+				localStorage.setItem("stream_token", result?.streamToken)
+				return { data: result?.data, ...body }
 			}
 
-			console.error("metadata upload failed", data.error.code);
+			console.error("metadata upload failed", result?.error.code);
 			throw new Error("failed")
 		}).catch(err => {
 			console.error(err);
@@ -236,34 +258,68 @@ export class FileService {
 		})
 	}
 
-	async uploadFile(file: File, fileID: string, fileType: string) {
-		const fileInfo = await FileUtils.digestBlob(file, true);
+	async uploadFile(file: File, fileID: string, fileHash: string, fileType: string) {
+		// const fileInfo = await FileUtils.digestBlob(file, true);
 
-		let data = Store.get('files', [])
+		let data = Store.get(StoreKey.files, [])
 		let prevFileRevisionFound = data.find((info: any) => info.fileName == file.name)
-
-		// return Promise.resolve(true)
 
 		let chunks = await this.chunkFile(file);
 
-		// Figure out the chunks that has changed
-		if (prevFileRevisionFound) {
-			console.log(prevFileRevisionFound.chunks)
+		console.log(prevFileRevisionFound)
+		console.log(prevFileRevisionFound && prevFileRevisionFound.chunks.length == chunks.length)
 
-			// make sure to sort the chunks by chunkID
-			const prevChunks = prevFileRevisionFound.chunks.sort((prev, next) => prev.chunkID - next.chunkID)
+		debugger
 
-			console.log(prevChunks);
-			// Need to check this once
-			chunks.filter(chunk => prevChunks.find(prevChunk => prevChunk.digest == chunk.digest))
-		}
+		return Promise.reject(true)
+
+
+		// TODO: Here we need to make a call
+		// The thing is
+		// When a file is getting replaced
+		// It can have 3 conditions
+		//
+		// 1. Some part has been deleted and modified, keeping chunk size same
+		//    But different content hash
+		// 2. A good chunk of the file has been modified, leading to reaggarngement
+		//	  of chunks. So we may end up with more or less than present chunks.
+		//
+		// So, Addition of chunks is less of an issue than deletion.
+		// Cause during deletion, we are now left with empty chunks in database records
+		// which needs to be cleaned up
+		// Considering this, when the number of chunks changes
+		//
+		// We are going to do a full update, and not do the comparison with prevChunks
+		// On the backend we need to handle the deletion case while listing file chunks in
+		// /files API
 
 		const chunkSize = chunks.length;
+
+		if (prevFileRevisionFound &&
+			prevFileRevisionFound.chunks &&
+			prevFileRevisionFound.chunks[prevFileRevisionFound.version].length == chunkSize) {
+
+
+
+			// make sure to sort the chunks by chunkID
+			// const prevChunks = prevFileRevisionFound.chunks.sort((prev, next) => prev.chunkID - next.chunkID)
+			const prevChunks = prevFileRevisionFound.chunks[prevFileRevisionFound.version]
+			console.log(prevChunks)
+
+			// Need to check this once
+			chunks = chunks.filter(chunk => chunk.digest != prevChunks[chunk.id] ? prevChunks[chunk.id].chunkHash : undefined)
+			console.log(chunks)
+
+		}
+
+
 		let groups = <Array<Array<any>>>[];
 
 		for (let i = 0; i < chunkSize; i += PARALLEL_STREAMS) {
 			groups.push(chunks.slice(i, Math.min(i + PARALLEL_STREAMS, chunkSize)))
 		}
+
+		Store.set(StoreKey.files, [])
 
 		const chunkResult = []
 		let nextId = 0
@@ -282,6 +338,7 @@ export class FileService {
 				body.append("id", `${ffile.id}`);
 				body.append("nextChunkID", `${nextId}`)
 				body.append("chunkDigest", ffile.digest);
+				body.append("fileDigest", fileHash);
 
 				await fetch(`${DOMAIN()}/my/files/${fileID}/chunks`, {
 					method: 'PATCH',
@@ -302,6 +359,7 @@ export class FileService {
 			chunkResult.push(res);
 		}
 
+
 		return Promise.resolve(chunkResult)
 
 	}
@@ -311,12 +369,16 @@ export class FileService {
 		let start = 0;
 
 		let numChunks = this.calculateChunks(file.size)
+		let index = 0
 
 		while (start < numChunks) {
 			const buff = file.slice(start, start + CHUNK_SIZE);
 			console.log("waiting for digestion")
 
 			const digest = await FileUtils.digestBlob(buff);
+
+			index += 1
+			if (index == numChunks) index = -1
 
 			chunks.push(
 				{
@@ -326,6 +388,7 @@ export class FileService {
 					t: file.type,
 					size: file.size,
 					digest: digest.digest,
+					nextChunkID: index,
 				}
 			);
 			start += 1;
@@ -335,3 +398,7 @@ export class FileService {
 	}
 }
 
+
+export const cn = function(...args: any): string {
+	return args.join(" ")
+}

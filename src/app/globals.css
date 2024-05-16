@@ -36,3 +36,9 @@ body {
     text-wrap: balance;
   }
 }
+
+.area-wrapper {
+  padding: 10px;
+  border: 1px solid;
+  border-radius: 10px;
+}

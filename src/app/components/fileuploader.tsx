@@ -4,15 +4,14 @@ import { Store } from "@/commons/store";
 import { FileService, SetupDraggable } from "@/commons/utils";
 import { FormEvent, useEffect, useRef } from "react";
 
-const PARALLEL_STREAMS = 3
-
 export const FileUploader = () => {
     const dropRef = useRef(null);
     const fileRef = useRef(null);
 
     useEffect(() => {
-        if (dropRef.current)
+        if (dropRef.current) {
             SetupDraggable(dropRef.current);
+        }
     }, [])
 
     const handleSubmit = async (e: FormEvent) => {
@@ -24,16 +23,27 @@ export const FileUploader = () => {
 
         const file = files[0]
 
-        const chunks = await fs.chunkFile(file)
-        // const chunkSize = chunks.length;
+        try {
+            let metadaResponse = await fs.uploadMetadata(file)
 
-        // use only n_PARALLEL STREAMS
-        let metadaResponse = await fs.uploadMetadata(file)
-        console.log(metadaResponse)
+            console.log(metadaResponse)
+
+            let results = await fs.uploadFile(
+                file,
+                metadaResponse.data.fileID,
+                metadaResponse.digest,
+                "blob",
+            )
+            console.log("upload results ", results)
+            alert("upload success")
+        } catch (e) {
+            console.error("failed to submit form", e)
+            alert("failed")
+        }
+
 
         // We probably dont neeed fileType here now
-        let results = await fs.uploadFile(file, metadaResponse.fileID, "blob")
-        console.log("upload results ", results)
+
     }
 
     return (

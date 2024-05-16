@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { FileCheck2 } from 'lucide-react';
 
-import { Store } from "@/commons/store";
-import { FileService } from "@/commons/utils";
+import { Store, StoreKey } from "@/commons/store";
+import { FileService, cn } from "@/commons/utils";
 
 
 async function fetchFiles() {
@@ -12,34 +12,57 @@ async function fetchFiles() {
     return result;
 }
 
-export const ListFiles = () => {
+export const ListFiles = (props: any) => {
     const effectRan = useRef(false);
     const [files, setFiles] = useState([]);
+    const stagedFiles = props.stagedFiles || [];
 
     useEffect(() => {
-        if (!effectRan.current) {
-            fetchFiles().then(result => {
-                if (result.success) {
-                    setFiles(result.data.files || [])
+        const unsubscribe = () => { effectRan.current = true; }
 
-                    Store.set('files', result.data.files)
-                }
-            })
+        if (effectRan.current) {
+            return unsubscribe
         }
 
-        return () => { effectRan.current = true; }
+        fetchFiles().then(result => {
+            if (!result.success) {
+                // handle errors here.
+                console.log("err", result.body?.error?.message)
+                throw new Error('something went wrong')
+            }
+            return result.body?.data
+        }).then(data => {
+            setFiles(data.files || [])
+
+            Store.set(StoreKey.files, data.files)
+        }).catch(e => {
+            console.error(e)
+        })
+
+        return unsubscribe;
     }, [])
 
     return (
-        <ul className="mt-8 w-[80%] mx-auto">
-            {files.map((file, i) => <FileInfo details={file} key={`details_${i + 1}`} />)}
-        </ul>
+        <div className="w-full">
+            <div className={cn(stagedFiles.length > 0 ? "block" : "hidden", "w-[80%] mx-auto")}>
+                <h2 className="font-bold text-lg">Waiting for upload</h2>
+                <ul className="mt-8 staging-area area-wrapper">
+                    {stagedFiles.map((file, i) => <FileInfo details={file} key={`details_${i + 1}`} />)}
+                </ul>
+            </div>
+            <div className={cn(files.length > 0 ? "block" : "hidden", "w-[80%] mx-auto mt-16")}>
+                <h2 className="font-bold text-lg">Your files</h2>
+                <ul className="mt-8 synced-area area-wrapper">
+                    {files.map((file, i) => <FileInfo details={file} key={`details_${i + 1}`} />)}
+                </ul>
+            </div>
+        </div>
     );
 };
 
 const FileInfo = ({ details }: { details: any }) => {
     return <li className="flex flex-row mb-4 items-end gap-4">
-        <FileCheck2 width={48} height={48} />
-        <span className="inline-block text-xl">{details.fileName}</span>
+        <FileCheck2 width={32} height={32} />
+        <span className="inline-block text-xl">{details.fileName || details.name}</span>
     </li>
 }

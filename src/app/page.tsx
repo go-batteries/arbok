@@ -1,9 +1,18 @@
 'use client';
 
+import { StageFileEvent } from "@/commons/events";
+import { Store } from "@/commons/store";
 import { FileUploader } from "@components/fileuploader";
 import { ListFiles } from "@components/listfiles";
+import { useState } from "react";
 
 export default function Home() {
+  const [stagedFiles, setStagedFiles] = useState([]);
+
+  Store.on(StageFileEvent, (files: File[]) => {
+    setStagedFiles(Array.from(files))
+  })
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-between p-24">
       <div className="z-10 w-full max-w-5xl items-center justify-between font-mono text-sm lg:flex">
@@ -14,7 +23,7 @@ export default function Home() {
       </div>
 
       <FileUploader />
-      <ListFiles />
+      <ListFiles stagedFiles={stagedFiles} />
 
       <div className="mb-32 grid text-center lg:mb-0 lg:w-full lg:max-w-5xl lg:grid-cols-4 lg:text-left">
 
