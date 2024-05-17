@@ -123,7 +123,7 @@ const FileUtils = {
 			fileType = _fileTypes[0].mime || _fileTypes[0].typename
 		}
 
-		console.log(fileType, "fileType")
+		// console.log(fileType, "fileType")
 		return {
 			digest: hashDigestHex,
 			fileType,
@@ -169,6 +169,18 @@ export class FileService {
 		return Math.floor((fileSize + CHUNK_SIZE - 1) / CHUNK_SIZE)
 	}
 
+	async markComplete(fileID: string) {
+		let req: JSONRequest = {
+			method: 'PUT',
+			headers: {
+				...buildAuthTokenHeader(),
+				...buildStreamToken(),
+			}
+		}
+
+		return fetchJSON(`${DOMAIN()}/my/files/${fileID}/eof`, req)
+	}
+
 	async fetchFiles(abortSignal?: AbortSignal) {
 		let data: JSONRequest = {
 			method: 'GET',
@@ -184,44 +196,74 @@ export class FileService {
 		return fetchJSON(`${DOMAIN()}/my/files`, data)
 	}
 
+	async updateMetadata(prevRevision: any, file: File, fileInfo: { digest: string, fileType: string }) {
+		const body = {
+			fileID: prevRevision.fileID,
+			fileSize: file.size,
+			fileName: file.name,
+			chunks: this.calculateChunks(file.size),
+			digest: fileInfo.digest,
+		}
+
+		// console.log("update body", body)
+
+		return fetchJSON(`${DOMAIN()}/my/files/${body.fileID}`, {
+			method: 'PATCH',
+			headers: {
+				...buildAuthTokenHeader(),
+			},
+			body: JSON.stringify(body)
+
+		}).then(data => {
+			let result = data.body;
+
+			if (data.success) {
+				localStorage.setItem("stream_token", result?.data?.streamToken)
+				return { data: result?.data, ...body }
+			}
+
+			throw new Error("failed")
+		}).catch(e => {
+			console.log("metadata update failed")
+			console.log(e)
+			throw e
+		})
+	}
+
 	async uploadMetadata(file: File) {
 		const fileInfo = await FileUtils.digestBlob(file, true);
 
 		let data = Store.get(StoreKey.files, [])
 
-		debugger
 		// TODO: add fileType as filterCriteria
-		let prevFileRevisionFound = data.find((info: any) => info.fileName == file.name)
+		let prevFileRevision = data.find((info: any) => info.fileName == file.name)
 
-		if (prevFileRevisionFound) {
-			if (prevFileRevisionFound.fileHash == fileInfo.digest)
+		if (prevFileRevision) {
+			if (prevFileRevision.fileHash == fileInfo.digest)
 				return Promise.reject(new Error("no_change"))
 
-			const body = {
-				fileID: prevFileRevisionFound.fileID,
-				fileSize: file.size,
-				fileName: file.name,
-				chunks: this.calculateChunks(file.size),
-				digest: fileInfo.digest,
+			//UPDATE
 
-			}
-			return fetchJSON(`${DOMAIN()}/my/files/${prevFileRevisionFound.fileID}`, {
-				method: 'PATCH',
-				headers: {
-					...buildAuthTokenHeader(),
-				},
-				body: JSON.stringify(body)
-			}).then(data => {
-				let result = data.body;
+			let chunks = await this.chunkFile(file);
+			let prevChunks = prevFileRevision.chunks;
 
-				if (data.success) {
-					if (result?.streamToken)
-						localStorage.setItem("stream_token", result?.streamToken)
-				}
-				return { data: result, ...body }
-			})
+			console.log("chunk hashes",
+				"present", chunks.map(c => c.digest),
+				"previous", Object.values(prevChunks).map((c: any) => c.chunkHash))
+
+			chunks = chunks.filter(chunk => chunk.digest != prevChunks[`${chunk.id}`]?.chunkHash)
+
+			console.log("chunks to upload ", chunks.length)
+			console.log("chunk diff", chunks.map(c => c.digest))
+
+			return this.updateMetadata(
+				prevFileRevision,
+				file,
+				fileInfo,
+			)
 		}
 
+		// CREATE
 		const body = {
 			fileName: file.name,
 			fileSize: file.size,
@@ -230,7 +272,6 @@ export class FileService {
 			chunks: this.calculateChunks(file.size),
 		};
 
-		// checkAccessToken()
 
 		return fetchJSON(`${DOMAIN()}/my/files`, {
 			method: 'POST',
@@ -239,14 +280,11 @@ export class FileService {
 			},
 			body: JSON.stringify(body),
 		}).then(data => {
-			console.log(data);
-			let result = data.body;
+			let result = data.body?.data;
 
 			if (data.success) {
-				// Here we are setting the stream token
-				// that is comming in respons
 				localStorage.setItem("stream_token", result?.streamToken)
-				return { data: result?.data, ...body }
+				return { data: result, ...body }
 			}
 
 			console.error("metadata upload failed", result?.error.code);
@@ -259,59 +297,21 @@ export class FileService {
 	}
 
 	async uploadFile(file: File, fileID: string, fileHash: string, fileType: string) {
-		// const fileInfo = await FileUtils.digestBlob(file, true);
-
 		let data = Store.get(StoreKey.files, [])
-		let prevFileRevisionFound = data.find((info: any) => info.fileName == file.name)
+		let prevFileRevision = data.find((info: any) => info.fileName == file.name)
 
 		let chunks = await this.chunkFile(file);
 
-		console.log(prevFileRevisionFound)
-		console.log(prevFileRevisionFound && prevFileRevisionFound.chunks.length == chunks.length)
+		// debugger
+		// return Promise.reject(true)
 
-		debugger
-
-		return Promise.reject(true)
-
-
-		// TODO: Here we need to make a call
-		// The thing is
-		// When a file is getting replaced
-		// It can have 3 conditions
-		//
-		// 1. Some part has been deleted and modified, keeping chunk size same
-		//    But different content hash
-		// 2. A good chunk of the file has been modified, leading to reaggarngement
-		//	  of chunks. So we may end up with more or less than present chunks.
-		//
-		// So, Addition of chunks is less of an issue than deletion.
-		// Cause during deletion, we are now left with empty chunks in database records
-		// which needs to be cleaned up
-		// Considering this, when the number of chunks changes
-		//
-		// We are going to do a full update, and not do the comparison with prevChunks
-		// On the backend we need to handle the deletion case while listing file chunks in
-		// /files API
-
-		const chunkSize = chunks.length;
-
-		if (prevFileRevisionFound &&
-			prevFileRevisionFound.chunks &&
-			prevFileRevisionFound.chunks[prevFileRevisionFound.version].length == chunkSize) {
-
-
-
-			// make sure to sort the chunks by chunkID
-			// const prevChunks = prevFileRevisionFound.chunks.sort((prev, next) => prev.chunkID - next.chunkID)
-			const prevChunks = prevFileRevisionFound.chunks[prevFileRevisionFound.version]
-			console.log(prevChunks)
-
-			// Need to check this once
-			chunks = chunks.filter(chunk => chunk.digest != prevChunks[chunk.id] ? prevChunks[chunk.id].chunkHash : undefined)
-			console.log(chunks)
-
+		if (Object.values(prevFileRevision?.chunks || {}).length == chunks.length) {
+			const prevChunks = prevFileRevision.chunks
+			chunks = chunks.filter(chunk => chunk.digest != prevChunks[`${chunk.id}`]?.chunkHash)
 		}
 
+		const chunkSize = chunks.length;
+		console.log("chunks to update ", chunkSize)
 
 		let groups = <Array<Array<any>>>[];
 
@@ -320,6 +320,7 @@ export class FileService {
 		}
 
 		Store.set(StoreKey.files, [])
+		Store.emit(StageFileEvent, [])
 
 		const chunkResult = []
 		let nextId = 0
@@ -371,27 +372,30 @@ export class FileService {
 		let numChunks = this.calculateChunks(file.size)
 		let index = 0
 
-		while (start < numChunks) {
-			const buff = file.slice(start, start + CHUNK_SIZE);
-			console.log("waiting for digestion")
+		while (start < file.size) {
+			const end = Math.min(start + CHUNK_SIZE, file.size);
+			const buff = file.slice(start, end);
+
+			// console.log(start, end)
 
 			const digest = await FileUtils.digestBlob(buff);
 
+
 			index += 1
-			if (index == numChunks) index = -1
+			const nextChunkID = index === numChunks ? -1 : index;
 
 			chunks.push(
 				{
 					buff: buff,
-					id: start,
+					id: index - 1,
 					name: file.name,
 					t: file.type,
 					size: file.size,
 					digest: digest.digest,
-					nextChunkID: index,
+					nextChunkID: nextChunkID,
 				}
 			);
-			start += 1;
+			start = end;
 		}
 
 		return chunks;

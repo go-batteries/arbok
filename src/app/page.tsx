@@ -7,7 +7,7 @@ import { ListFiles } from "@components/listfiles";
 import { useState } from "react";
 
 export default function Home() {
-  const [stagedFiles, setStagedFiles] = useState([]);
+  const [stagedFiles, setStagedFiles] = useState<File[]>([]);
 
   Store.on(StageFileEvent, (files: File[]) => {
     setStagedFiles(Array.from(files))

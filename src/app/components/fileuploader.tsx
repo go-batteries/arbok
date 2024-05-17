@@ -1,6 +1,6 @@
 'use client';
 
-import { Store } from "@/commons/store";
+import { Store, StoreKey } from "@/commons/store";
 import { FileService, SetupDraggable } from "@/commons/utils";
 import { FormEvent, useEffect, useRef } from "react";
 
@@ -26,7 +26,7 @@ export const FileUploader = () => {
         try {
             let metadaResponse = await fs.uploadMetadata(file)
 
-            console.log(metadaResponse)
+            // console.log(metadaResponse)
 
             let results = await fs.uploadFile(
                 file,
@@ -34,11 +34,16 @@ export const FileUploader = () => {
                 metadaResponse.digest,
                 "blob",
             )
-            console.log("upload results ", results)
+            // console.log("upload results ", results)
+
+            await fs.markComplete(metadaResponse.data.fileID)
+            // console.log(rr)
             alert("upload success")
         } catch (e) {
             console.error("failed to submit form", e)
             alert("failed")
+        } finally {
+            Store.set(StoreKey.uploads, [])
         }
 
 

@@ -12,10 +12,10 @@ async function fetchFiles() {
     return result;
 }
 
-export const ListFiles = (props: any) => {
+export const ListFiles = (props: { stagedFiles: File[] }) => {
     const effectRan = useRef(false);
-    const [files, setFiles] = useState([]);
-    const stagedFiles = props.stagedFiles || [];
+    const [files, setFiles] = useState<File[]>([]);
+    const stagedFiles = props.stagedFiles;
 
     useEffect(() => {
         const unsubscribe = () => { effectRan.current = true; }
@@ -45,7 +45,7 @@ export const ListFiles = (props: any) => {
     return (
         <div className="w-full">
             <div className={cn(stagedFiles.length > 0 ? "block" : "hidden", "w-[80%] mx-auto")}>
-                <h2 className="font-bold text-lg">Waiting for upload</h2>
+                <h2 className="font-bold text-lg">Awaiting upload</h2>
                 <ul className="mt-8 staging-area area-wrapper">
                     {stagedFiles.map((file, i) => <FileInfo details={file} key={`details_${i + 1}`} />)}
                 </ul>
