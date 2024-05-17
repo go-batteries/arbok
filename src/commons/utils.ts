@@ -169,6 +169,46 @@ export class FileService {
 		return Math.floor((fileSize + CHUNK_SIZE - 1) / CHUNK_SIZE)
 	}
 
+	async fetchFileChunks(fileID: string) {
+		let req: JSONRequest = {
+			method: 'GET',
+			headers: {
+				...buildAuthTokenHeader(),
+				...buildStreamToken(),
+			}
+		}
+
+		try {
+			let response = await fetch(`${DOMAIN()}/my/files/${fileID}/download`, req)
+			if (response.status >= 400) {
+				throw new Error("failed download")
+			}
+
+			let blob = await response.blob()
+			const contentDisposition = response.headers.get('Content-Disposition');
+			let fileName = 'downloaded-file';
+
+			if (contentDisposition) {
+				const match = contentDisposition.match(/filename="(.+)"/);
+				if (match?.length === 2) fileName = match[1];
+			}
+
+			const url = window.URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.style.display = 'none';
+			a.href = url;
+			a.download = fileName;
+			document.body.appendChild(a);
+			a.click();
+			window.URL.revokeObjectURL(url);
+			document.body.removeChild(a);
+
+		} catch (e) {
+			console.log(e)
+		}
+
+	}
+
 	async markComplete(fileID: string) {
 		let req: JSONRequest = {
 			method: 'PUT',

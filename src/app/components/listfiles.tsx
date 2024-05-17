@@ -61,8 +61,16 @@ export const ListFiles = (props: { stagedFiles: File[] }) => {
 };
 
 const FileInfo = ({ details }: { details: any }) => {
+    const handleDownload = async (e: any, fileID: string) => {
+        const fs = new FileService()
+
+        await fs.fetchFileChunks(fileID)
+
+    }
+
     return <li className="flex flex-row mb-4 items-end gap-4">
         <FileCheck2 width={32} height={32} />
         <span className="inline-block text-xl">{details.fileName || details.name}</span>
+        <a href="#" onClick={(e) => handleDownload(e, details.fileID)}>Download</a>
     </li>
 }
