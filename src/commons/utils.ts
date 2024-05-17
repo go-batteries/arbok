@@ -92,7 +92,7 @@ export async function fetchJSON(url: string, opts: any) {
 			status: resp.status,
 			success: resp.status < 400,
 		}
-		if (Number(resp.headers.get("content-length")) > 0) {
+		if (resp.headers.get("content-type") == "application/json") {
 			return resp.json()
 		}
 
@@ -117,7 +117,7 @@ const FileUtils = {
 		// console.log(buff, new Uint8Array(buff))
 		let _fileTypes = filetypeinfo(new Uint8Array(buff))
 
-		let fileType = "blob"
+		let fileType = "application/octet-stream"
 
 		if (_fileTypes.length) {
 			fileType = _fileTypes[0].mime || _fileTypes[0].typename
@@ -164,11 +164,17 @@ type JSONRequest = {
 	signal?: AbortSignal,
 }
 
+export const buildDownloadURL = (fileID: string) => {
+	const dummyToken = `${FileUtils.getStreamToken()}:${FileUtils.getAccessToken()}`
+	return `${DOMAIN()}/my/files/${fileID}/download?X-Sig-Token=${dummyToken}`
+}
+
 export class FileService {
 	calculateChunks(fileSize: number) {
 		return Math.floor((fileSize + CHUNK_SIZE - 1) / CHUNK_SIZE)
 	}
 
+	//FIX: doesn;t work
 	async fetchFileChunks(fileID: string) {
 		let req: JSONRequest = {
 			method: 'GET',
@@ -185,7 +191,9 @@ export class FileService {
 			}
 
 			let blob = await response.blob()
-			const contentDisposition = response.headers.get('Content-Disposition');
+
+			console.log(blob.size, "size")
+			const contentDisposition = response.headers.get('content-disposition');
 			let fileName = 'downloaded-file';
 
 			if (contentDisposition) {
@@ -380,6 +388,7 @@ export class FileService {
 				body.append("nextChunkID", `${nextId}`)
 				body.append("chunkDigest", ffile.digest);
 				body.append("fileDigest", fileHash);
+				body.append("fileName", file.name);
 
 				await fetch(`${DOMAIN()}/my/files/${fileID}/chunks`, {
 					method: 'PATCH',

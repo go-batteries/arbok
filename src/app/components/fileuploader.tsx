@@ -4,6 +4,8 @@ import { Store, StoreKey } from "@/commons/store";
 import { FileService, SetupDraggable } from "@/commons/utils";
 import { FormEvent, useEffect, useRef } from "react";
 
+let _;
+
 export const FileUploader = () => {
     const dropRef = useRef(null);
     const fileRef = useRef(null);
@@ -34,6 +36,7 @@ export const FileUploader = () => {
                 metadaResponse.digest,
                 "blob",
             )
+            _ = results
             // console.log("upload results ", results)
 
             await fs.markComplete(metadaResponse.data.fileID)

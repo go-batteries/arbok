@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { FileCheck2 } from 'lucide-react';
 
 import { Store, StoreKey } from "@/commons/store";
-import { FileService, cn } from "@/commons/utils";
+import { FileService, buildDownloadURL, cn } from "@/commons/utils";
 
 
 async function fetchFiles() {
@@ -30,6 +30,7 @@ export const ListFiles = (props: { stagedFiles: File[] }) => {
                 console.log("err", result.body?.error?.message)
                 throw new Error('something went wrong')
             }
+
             return result.body?.data
         }).then(data => {
             setFiles(data.files || [])
@@ -61,16 +62,10 @@ export const ListFiles = (props: { stagedFiles: File[] }) => {
 };
 
 const FileInfo = ({ details }: { details: any }) => {
-    const handleDownload = async (e: any, fileID: string) => {
-        const fs = new FileService()
-
-        await fs.fetchFileChunks(fileID)
-
-    }
 
     return <li className="flex flex-row mb-4 items-end gap-4">
         <FileCheck2 width={32} height={32} />
         <span className="inline-block text-xl">{details.fileName || details.name}</span>
-        <a href="#" onClick={(e) => handleDownload(e, details.fileID)}>Download</a>
+        <a href={buildDownloadURL(details.fileID)}>Download</a>
     </li>
 }
