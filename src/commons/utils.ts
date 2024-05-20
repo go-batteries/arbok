@@ -299,7 +299,22 @@ export class FileService {
 				"present", chunks.map(c => c.digest),
 				"previous", Object.values(prevChunks).map((c: any) => c.chunkHash))
 
-			chunks = chunks.filter(chunk => chunk.digest != prevChunks[`${chunk.id}`]?.chunkHash)
+
+			if (Object.values(prevFileRevision?.chunks || {}).length == chunks.length) {
+				const prevChunks = prevFileRevision.chunks
+
+				chunks = chunks.filter(chunk => {
+					const prevChunk = prevChunks[`${chunk.id}`];
+
+					return (
+						prevChunk &&
+						(chunk.digest != prevChunk.chunkHash ||
+							chunk.nextChunkID !== prevChunk.nextChunkID
+						)
+					)
+				})
+			}
+			// chunks = chunks.filter(chunk => chunk.digest != prevChunks[`${chunk.id}`]?.chunkHash)
 
 			console.log("chunks to upload ", chunks.length)
 			console.log("chunk diff", chunks.map(c => c.digest))
@@ -312,6 +327,7 @@ export class FileService {
 		}
 
 		// CREATE
+
 		const body = {
 			fileName: file.name,
 			fileSize: file.size,
@@ -353,9 +369,21 @@ export class FileService {
 		// debugger
 		// return Promise.reject(true)
 
+		// Check if previousRevision is present and 
+		// filter the ones whose hash digest changed
 		if (Object.values(prevFileRevision?.chunks || {}).length == chunks.length) {
 			const prevChunks = prevFileRevision.chunks
-			chunks = chunks.filter(chunk => chunk.digest != prevChunks[`${chunk.id}`]?.chunkHash)
+
+			chunks = chunks.filter(chunk => {
+				const prevChunk = prevChunks[`${chunk.id}`];
+
+				return (
+					prevChunk &&
+					(chunk.digest != prevChunk.chunkHash ||
+						chunk.nextChunkID !== prevChunk.nextChunkID
+					)
+				)
+			})
 		}
 
 		const chunkSize = chunks.length;

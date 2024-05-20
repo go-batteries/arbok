@@ -34,7 +34,7 @@ export const FileUploader = () => {
                 file,
                 metadaResponse.data.fileID,
                 metadaResponse.digest,
-                "blob",
+                "application/octet-stream",
             )
             _ = results
             // console.log("upload results ", results)

@@ -4,14 +4,33 @@ import { StageFileEvent } from "@/commons/events";
 import { Store } from "@/commons/store";
 import { FileUploader } from "@components/fileuploader";
 import { ListFiles } from "@components/listfiles";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import SSEEvents from "./components/sissyevents";
 
 export default function Home() {
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
 
-  Store.on(StageFileEvent, (files: File[]) => {
+  const handleFileChange = (files: File[]) => {
     setStagedFiles(Array.from(files))
-  })
+  }
+
+  useEffect(() => {
+    Store.on(StageFileEvent, handleFileChange)
+
+    return () => {
+      Store.off(StageFileEvent, handleFileChange)
+    }
+  }, [])
+
+  const makeEventSrcURL = () => {
+    // const deviceID = ups.get("deviceID")
+    const ups = new URLSearchParams(window.location.search)
+    const accessToken = ups.get("accessToken")
+
+    ups.set("X-Access-Token", `Bearer ${accessToken}`)
+
+    return `http://localhost:9191/subscribe/devices?${ups.toString()}`
+  }
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-between p-24">
@@ -24,6 +43,7 @@ export default function Home() {
 
       <FileUploader />
       <ListFiles stagedFiles={stagedFiles} />
+      <SSEEvents url={makeEventSrcURL()} />
 
       <div className="mb-32 grid text-center lg:mb-0 lg:w-full lg:max-w-5xl lg:grid-cols-4 lg:text-left">
 
