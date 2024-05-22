@@ -23,7 +23,6 @@ export default function Home() {
   }, [])
 
   const makeEventSrcURL = () => {
-    // const deviceID = ups.get("deviceID")
     const ups = new URLSearchParams(window.location.search)
     const accessToken = ups.get("accessToken")
 
