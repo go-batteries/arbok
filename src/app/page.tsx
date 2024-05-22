@@ -11,6 +11,7 @@ export default function Home() {
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
 
   const handleFileChange = (files: File[]) => {
+    console.log("file change ", Array.from(files))
     setStagedFiles(Array.from(files))
   }
 

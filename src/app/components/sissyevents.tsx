@@ -7,12 +7,11 @@ export function SetupEventSource(url: string, fn: Function) {
 
     const source = new EventSource(url, { withCredentials: true })
 
-    source.onmessage = (event) => {
-        console.log(event.data, "data")
+    source.onmessage = (event: MessageEvent) => {
         fn(null, event.data)
     }
 
-    source.onerror = (event) => {
+    source.onerror = (event: any) => {
         console.log('Error: ', event.target.readyState)
         source.close();
 
@@ -34,7 +33,6 @@ export default function SSEEvents(props: { url: string }) {
         const evtSrcCloser = SetupEventSource(
             props.url,
             (err: Error, data: string) => {
-                console.log([...messages, data])
                 if (err == null) {
                     setMessages(messages => [...messages, data])
                 } else {

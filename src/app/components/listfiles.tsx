@@ -3,6 +3,7 @@ import { FileCheck2 } from 'lucide-react';
 
 import { Store, StoreKey } from "@/commons/store";
 import { FileService, buildDownloadURL, cn } from "@/commons/utils";
+import { FileUploadCompleteEvent } from "@/commons/events";
 
 
 async function fetchFiles() {
@@ -33,6 +34,9 @@ export const ListFiles = (props: { stagedFiles: File[] }) => {
 
             return result.body?.data
         }).then(data => {
+
+            console.log("files...:", data.files);
+
             setFiles(data.files || [])
 
             Store.set(StoreKey.files, data.files)
@@ -42,6 +46,14 @@ export const ListFiles = (props: { stagedFiles: File[] }) => {
 
         return unsubscribe;
     }, [])
+
+    useEffect(() => {
+        Store.on(FileUploadCompleteEvent, setFiles)
+
+        return () => {
+            Store.off(FileUploadCompleteEvent, setFiles)
+        }
+    })
 
     return (
         <div className="w-full">
@@ -62,10 +74,11 @@ export const ListFiles = (props: { stagedFiles: File[] }) => {
 };
 
 const FileInfo = ({ details }: { details: any }) => {
-
-    return <li className="flex flex-row mb-4 items-end gap-4">
-        <FileCheck2 width={32} height={32} />
-        <span className="inline-block text-xl">{details.fileName || details.name}</span>
-        <a href={buildDownloadURL(details.fileID)}>Download</a>
-    </li>
+    return (
+        <li className="flex flex-row mb-4 items-end gap-4">
+            <FileCheck2 width={32} height={32} />
+            <span className="inline-block text-xl">{details.fileName || details.name}</span>
+            {details.syncing ? <a href={buildDownloadURL(details.fileID)}>Download</a> : <span>Processing</span>}
+        </li>
+    )
 }

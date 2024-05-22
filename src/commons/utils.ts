@@ -2,7 +2,8 @@
 
 import { filetypeinfo } from 'magic-bytes.js/dist';
 import { Store, StoreKey } from '@/commons/store';
-import { StageFileEvent } from './events';
+import { FileUploadCompleteEvent, StageFileEvent } from './events';
+import { fail } from 'assert';
 
 const crypto = () => window.crypto;
 
@@ -42,8 +43,8 @@ function handleDrop(e: any) {
 	const dt = e.dataTransfer;
 	const files = dt.files;
 
-	Store.emit(StageFileEvent, files)
 	Store.set(StoreKey.uploads, files)
+	Store.emit(StageFileEvent, files)
 }
 
 function handleDropWrapper(fileRef: HTMLElement) {
@@ -67,8 +68,52 @@ type Ffile = {
 	nextChunkID: number
 }
 
-const DOMAIN = () => "http://localhost:9191";
+export type UploadedFile = {
+	fileID: string,
+	fileName: string,
+	fileHash: string,
+	fileSize: number,
+	fileType: string,
+	nChunks: number,
+	userID: string,
+	chunks: Map<number, ChunkUploadResponse>,
+	currentFlag: boolean,
+	syncing: boolean,
+}
 
+export type MetadataResponse = {
+	streamToken: string,
+	prevID: string | null,
+	fileID: string,
+	fileHash: string,
+	fileType: string,
+	uploadStatus: string,
+	createdAt: string,
+	expiresAt: number,
+}
+
+export type ChunkUploadResponse = {
+	chunkID: number,
+	nextChunkID: number,
+	chunkBlobUrl: string,
+	chunkHash: string,
+	createdAt: string,
+	updatedAt: string,
+}
+
+type MetadataRequestResponse = {
+	data?: MetadataResponse,
+	body: {
+		fileID: string,
+		fileSize: number,
+		fileType: string,
+		fileName: string,
+		chunks: number,
+		digest: string,
+	}
+}
+
+export const DOMAIN = () => "http://localhost:9191";
 
 type ResponseDetails = {
 	status: number,
@@ -174,49 +219,6 @@ export class FileService {
 		return Math.floor((fileSize + CHUNK_SIZE - 1) / CHUNK_SIZE)
 	}
 
-	//FIX: doesn;t work
-	async fetchFileChunks(fileID: string) {
-		let req: JSONRequest = {
-			method: 'GET',
-			headers: {
-				...buildAuthTokenHeader(),
-				...buildStreamToken(),
-			}
-		}
-
-		try {
-			let response = await fetch(`${DOMAIN()}/my/files/${fileID}/download`, req)
-			if (response.status >= 400) {
-				throw new Error("failed download")
-			}
-
-			let blob = await response.blob()
-
-			console.log(blob.size, "size")
-			const contentDisposition = response.headers.get('content-disposition');
-			let fileName = 'downloaded-file';
-
-			if (contentDisposition) {
-				const match = contentDisposition.match(/filename="(.+)"/);
-				if (match?.length === 2) fileName = match[1];
-			}
-
-			const url = window.URL.createObjectURL(blob);
-			const a = document.createElement('a');
-			a.style.display = 'none';
-			a.href = url;
-			a.download = fileName;
-			document.body.appendChild(a);
-			a.click();
-			window.URL.revokeObjectURL(url);
-			document.body.removeChild(a);
-
-		} catch (e) {
-			console.log(e)
-		}
-
-	}
-
 	async markComplete(fileID: string) {
 		let req: JSONRequest = {
 			method: 'PUT',
@@ -267,7 +269,7 @@ export class FileService {
 
 			if (data.success) {
 				localStorage.setItem("stream_token", result?.data?.streamToken)
-				return { data: result?.data, ...body }
+				return { data: result?.data, body }
 			}
 
 			throw new Error("failed")
@@ -314,7 +316,6 @@ export class FileService {
 					)
 				})
 			}
-			// chunks = chunks.filter(chunk => chunk.digest != prevChunks[`${chunk.id}`]?.chunkHash)
 
 			console.log("chunks to upload ", chunks.length)
 			console.log("chunk diff", chunks.map(c => c.digest))
@@ -348,7 +349,7 @@ export class FileService {
 
 			if (data.success) {
 				localStorage.setItem("stream_token", result?.streamToken)
-				return { data: result, ...body }
+				return { data: result, body }
 			}
 
 			console.error("metadata upload failed", result?.error.code);
@@ -395,10 +396,12 @@ export class FileService {
 			groups.push(chunks.slice(i, Math.min(i + PARALLEL_STREAMS, chunkSize)))
 		}
 
-		Store.set(StoreKey.files, [])
-		Store.emit(StageFileEvent, [])
+		// Store.set(StoreKey.files, [])
+		// Store.emit(StageFileEvent, [])
 
-		const chunkResult = []
+		let chunkResult = []
+		let fails = [];
+
 		let nextId = 0
 
 		// use only n_PARALLEL STREAMS
@@ -418,7 +421,7 @@ export class FileService {
 				body.append("fileDigest", fileHash);
 				body.append("fileName", file.name);
 
-				await fetch(`${DOMAIN()}/my/files/${fileID}/chunks`, {
+				return await fetch(`${DOMAIN()}/my/files/${fileID}/chunks`, {
 					method: 'PATCH',
 					headers: {
 						...buildAuthTokenHeader(),
@@ -434,12 +437,103 @@ export class FileService {
 
 			}))
 
-			chunkResult.push(res);
+
+			for (let value of res.values()) {
+				if (value.status == "rejected") {
+					fails.push(value.reason)
+				} else if (value.value?.success) {
+					chunkResult = [...chunkResult, value.value?.data];
+				} else {
+					fails.push(value.value)
+				}
+			}
 		}
 
+		if (fails.length > 0) {
+			return Promise.reject(fails)
+		}
 
 		return Promise.resolve(chunkResult)
+	}
 
+	resetStage() {
+		Store.set(StoreKey.uploads, [])
+		Store.emit(StageFileEvent, [])
+	}
+
+	// Initial commit to handle file upload and show in processing status
+	// On frontend
+	// On backend we can send the listings with status='uploading' &  current_flag = 0 created_at desc
+	// Right now
+	//
+	//
+	// This takes the response of file metadata create and the file chunk uploads.
+	// Fetches the files from app memory store
+	// And then goes on about rest of it
+	//
+	// On refresh though, the data is gone. That's why the need for a backend api
+	// The idea is, to 
+	//
+	// send sse events from the worker via the server, to notify the file chunk upload completed
+	// Update the app memory store
+	updateStoreView(metadataResponse: MetadataRequestResponse, chunksResponse: Map<number, ChunkUploadResponse>) {
+		if (!metadataResponse.data) {
+			return
+		}
+
+		// Find the exisiting file if present
+		// Create the new mock file and update the app store
+		// If previous version of file is present, just update the
+		// metadata info for now
+		// Since we are not doing chunked download on the client side
+		const files: UploadedFile[] = Store.get(StoreKey.files, [])
+		const prevFileIdx = files.findIndex(f => f.fileHash == metadataResponse.data?.fileHash)
+
+		console.log("update", files)
+
+		const thisFile: UploadedFile = {
+			fileID: metadataResponse.data.fileID,
+			fileName: metadataResponse.body.fileName,
+			fileHash: metadataResponse.data?.fileHash,
+			fileSize: metadataResponse.body.fileSize,
+			fileType: metadataResponse.body.fileType,
+			nChunks: metadataResponse.body.chunks,
+			userID: '',
+			currentFlag: false,
+			syncing: false,
+			chunks: chunksResponse,
+		}
+
+		if (prevFileIdx == -1) {
+			//Its a new file
+			if (!metadataResponse.data) {
+				return //safety check
+			}
+			console.log(thisFile, "thiFile", [thisFile, ...files])
+
+			Store.set(StoreKey.files, [thisFile, ...files])
+			Store.emit(FileUploadCompleteEvent, [thisFile, ...files])
+
+			return
+		}
+
+		//Update exisisting file
+		console.log("figure out how to convet exsisting file updates")
+
+		const prevFile = {
+			...files[prevFileIdx],
+			fileID: metadataResponse.data.fileID,
+			fileHash: metadataResponse.data.fileHash,
+			fileSize: metadataResponse.body.fileSize
+		}
+		// prevFile.fileID = metadataResponse.data.fileID
+		// prevFile.fileHash = metadataResponse.data.fileHash
+		// prevFile.fileSize = metadataResponse.body.fileSize
+
+		files[prevFileIdx] = prevFile
+
+		Store.set(StoreKey.files, [...files])
+		Store.emit(FileUploadCompleteEvent, [...files])
 	}
 
 	async chunkFile(file: File): Promise<Ffile[]> {
