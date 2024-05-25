@@ -231,6 +231,7 @@ export class FileService {
 		return fetchJSON(`${DOMAIN()}/my/files/${fileID}/eof`, req)
 	}
 
+	//Create a type here
 	async fetchFiles(abortSignal?: AbortSignal) {
 		let data: JSONRequest = {
 			method: 'GET',
@@ -500,7 +501,7 @@ export class FileService {
 			nChunks: metadataResponse.body.chunks,
 			userID: '',
 			currentFlag: false,
-			syncing: false,
+			syncing: true,
 			chunks: chunksResponse,
 		}
 
@@ -571,6 +572,33 @@ export class FileService {
 
 		return chunks;
 	}
+}
+
+export function updateFileStatus(fileID: string) {
+	const files: UploadedFile[] = Store.get(StoreKey.files, [])
+	const fileIdx = files.findIndex(f => f.fileID == fileID)
+
+	console.log(files, fileIdx, "updatefileStatus")
+
+	if (fileIdx < 0) {
+		console.log("fileid not found")
+		return
+	}
+
+	files[fileIdx].syncing = false
+	files[fileIdx].currentFlag = true
+
+	Store.set(StoreKey.files, [...files])
+	Store.emit(FileUploadCompleteEvent, [...files])
+}
+
+export function parseSSEData(str: string): {} {
+	console.log(str)
+
+	return str.split(',').reduce((acc, kv) => {
+		const [k, v] = kv.split(':')
+		return { ...acc, [k.trim()]: v.trim() }
+	}, {})
 }
 
 

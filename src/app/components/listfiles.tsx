@@ -5,7 +5,6 @@ import { Store, StoreKey } from "@/commons/store";
 import { FileService, buildDownloadURL, cn } from "@/commons/utils";
 import { FileUploadCompleteEvent } from "@/commons/events";
 
-
 async function fetchFiles() {
     const fs = new FileService();
     let result = await fs.fetchFiles()
@@ -15,7 +14,7 @@ async function fetchFiles() {
 
 export const ListFiles = (props: { stagedFiles: File[] }) => {
     const effectRan = useRef(false);
-    const [files, setFiles] = useState<File[]>([]);
+    const [files, setFiles] = useState<any>([]);
     const stagedFiles = props.stagedFiles;
 
     useEffect(() => {
@@ -60,25 +59,25 @@ export const ListFiles = (props: { stagedFiles: File[] }) => {
             <div className={cn(stagedFiles.length > 0 ? "block" : "hidden", "w-[80%] mx-auto")}>
                 <h2 className="font-bold text-lg">Awaiting upload</h2>
                 <ul className="mt-8 staging-area area-wrapper">
-                    {stagedFiles.map((file, i) => <FileInfo details={file} key={`details_${i + 1}`} />)}
+                    {stagedFiles.map((file, i) => <FileInfo stage={true} details={file} key={`details_${i + 1}`} />)}
                 </ul>
             </div>
             <div className={cn(files.length > 0 ? "block" : "hidden", "w-[80%] mx-auto mt-16")}>
                 <h2 className="font-bold text-lg">Your files</h2>
                 <ul className="mt-8 synced-area area-wrapper">
-                    {files.map((file, i) => <FileInfo details={file} key={`details_${i + 1}`} />)}
+                    {files.map((file, i) => <FileInfo details={file} stage={file.syncing} key={`details_${i + 1}`} />)}
                 </ul>
             </div>
         </div>
     );
 };
 
-const FileInfo = ({ details }: { details: any }) => {
+const FileInfo = ({ details, stage }: { details: any, stage: boolean }) => {
     return (
         <li className="flex flex-row mb-4 items-end gap-4">
             <FileCheck2 width={32} height={32} />
             <span className="inline-block text-xl">{details.fileName || details.name}</span>
-            {details.syncing ? <a href={buildDownloadURL(details.fileID)}>Download</a> : <span>Processing</span>}
+            {stage ? <span>Processing</span> : <a href={buildDownloadURL(details.fileID)}>Download</a>}
         </li>
     )
 }

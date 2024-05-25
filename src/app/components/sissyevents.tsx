@@ -1,3 +1,4 @@
+import { parseSSEData, updateFileStatus } from "@/commons/utils"
 import { useEffect, useState } from "react"
 
 const ErrConnClosed = new Error("connection_closed")
@@ -29,15 +30,20 @@ export default function SSEEvents(props: { url: string }) {
     const [messages, setMessages] = useState<string[]>([]);
     const [reconnect, shouldReconnect] = useState<boolean>(false);
 
+
     useEffect(() => {
         const evtSrcCloser = SetupEventSource(
             props.url,
             (err: Error, data: string) => {
-                if (err == null) {
-                    setMessages(messages => [...messages, data])
-                } else {
+                if (err != null) {
                     shouldReconnect(true)
+                    return
                 }
+
+                const resp = parseSSEData(data)
+                console.log("sse event ", resp, resp.fileID);
+                updateFileStatus(resp.fileID)
+                setMessages(messages => [...messages, data])
             }
         )
 
