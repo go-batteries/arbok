@@ -232,7 +232,7 @@ export class FileService {
 	}
 
 	//Create a type here
-	async fetchFiles(abortSignal?: AbortSignal) {
+	async fetchFiles(abortSignal?: AbortSignal, pages = { limit: 0, offset: 0 }) {
 		let data: JSONRequest = {
 			method: 'GET',
 			headers: {
@@ -244,7 +244,22 @@ export class FileService {
 			data = { ...data, signal: abortSignal }
 		}
 
-		return fetchJSON(`${DOMAIN()}/my/files`, data)
+		return fetchJSON(`${DOMAIN()}/my/files?limit=${pages.limit}&offset=${pages.offset}`, data)
+	}
+
+	async fetchFile(fileID: string, abortSignal?: AbortSignal,) {
+		let data: JSONRequest = {
+			method: 'GET',
+			headers: {
+				...buildAuthTokenHeader(),
+			},
+		}
+
+		if (abortSignal) {
+			data = { ...data, signal: abortSignal }
+		}
+
+		return fetchJSON(`${DOMAIN()}/my/files/${fileID}`, data)
 	}
 
 	async updateMetadata(prevRevision: any, file: File, fileInfo: { digest: string, fileType: string }) {
@@ -488,6 +503,8 @@ export class FileService {
 		// metadata info for now
 		// Since we are not doing chunked download on the client side
 		const files: UploadedFile[] = Store.get(StoreKey.files, [])
+		console.log(metadataResponse.data)
+
 		const prevFileIdx = files.findIndex(f => f.fileHash == metadataResponse.data?.fileHash)
 
 		console.log("update", files)
@@ -572,25 +589,31 @@ export class FileService {
 
 		return chunks;
 	}
-}
 
-export function updateFileStatus(fileID: string) {
-	const files: UploadedFile[] = Store.get(StoreKey.files, [])
-	const fileIdx = files.findIndex(f => f.fileID == fileID)
+	async updateFileStatus(fileID: string) {
+		let files: UploadedFile[] = Store.get(StoreKey.files, [])
+		let fileIdx = files.findIndex(f => f.fileID == fileID)
 
-	console.log(files, fileIdx, "updatefileStatus")
+		console.log(files, fileIdx, "updatefileStatus")
 
-	if (fileIdx < 0) {
-		console.log("fileid not found")
-		return
+		if (fileIdx < 0) {
+			console.log("fileid not found")
+			let results = await this.fetchFile(fileID)
+			let thisFile = results.body?.data
+
+			// console.log("new file", thisFile)
+			files = [thisFile, ...files]
+			fileIdx = 0
+		}
+
+		files[fileIdx].syncing = false
+		files[fileIdx].currentFlag = true
+
+		Store.set(StoreKey.files, [...files])
+		Store.emit(FileUploadCompleteEvent, [...files])
 	}
-
-	files[fileIdx].syncing = false
-	files[fileIdx].currentFlag = true
-
-	Store.set(StoreKey.files, [...files])
-	Store.emit(FileUploadCompleteEvent, [...files])
 }
+
 
 export function parseSSEData(str: string): {} {
 	console.log(str)
